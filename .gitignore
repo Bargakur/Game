@@ -1,0 +1,33 @@
+################################
+# Unreal Engine Generated Files #
+#################################
+
+# Unreal Engine
+Binaries/
+Intermediate/
+IntermediateProjectFiles/
+DerivedDataCache/
+Saved/
+*.tmp
+*.response
+*.log
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode (since UE uses Xcode on Mac)
+*.xcodeproj/
+*.xcworkspace/
+
+
+###################################
+# JetBrains Rider Generated Files #
+###################################
+.idea
+*.iml
+*.sln
+*.csproj
+*.sln.DotSettings
+*.sln.DotSettings.user
