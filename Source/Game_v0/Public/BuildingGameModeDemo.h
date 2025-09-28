@@ -60,8 +60,12 @@ protected:
     // Functions
     void SetupPlayerController();
     void SpawnAndSetupCamera();
-    void InitializePlayerStateFromGameInstance();
+    void InitializePlayerStateFromGameInstance();//also spawns resources
     void SpawnCoreBuildings();
+
+    void SpawnInitialResources();
+    void SpawnResourcesNearCores(int32 TeamID);
+    FVector GetRandomLocationNearCores(int32 TeamID, float Radius);
 
 public:
     UFUNCTION(BlueprintCallable, Category = "Game Events")
@@ -74,4 +78,8 @@ public:
     // Helper function to clear all spawn points
     UFUNCTION(BlueprintCallable, Category = "Core Buildings")
     void ClearCoreSpawnPoints();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Resource Spawning")
+    float ResourceSpawnRadius = 500.0f;//init resources around cores
+
 };

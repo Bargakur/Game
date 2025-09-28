@@ -179,16 +179,201 @@ void AUnitController::OnReachedDestination()
 
     void AUnitController::OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result)
     {
-        Super::OnMoveCompleted(RequestID, Result);
-
-        if (Result.IsSuccess())
+    Super::OnMoveCompleted(RequestID, Result);
+    
+    // Check if movement was successful
+    if (Result.Code == EPathFollowingResult::Success)
+    {
+        // Check if we completed movement for a resource pickup
+        if (bHasPendingResourceAction && TargetResourceActor.IsValid())
         {
-            OnReachedDestination();
-        }
-        else
-        {
-            StopMovement();
-            UE_LOG(LogTemp, Warning, TEXT("UnitController: Move failed or aborted"));
+            CheckResourcePickupCompletion();
         }
     }
+    else
+    {
+        // Movement failed - clear pending resource action
+        if (bHasPendingResourceAction)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Movement failed for resource pickup, clearing pending action"));
+            bHasPendingResourceAction = false;
+            TargetResourceActor = nullptr;
+        }
+    }
+    }
+void AUnitController::ExecuteResourceCommand(const FUnitCommand& Command)
+{
+    switch (Command.CommandType)
+    {
+    case EUnitCommandType::PickupResource:
+        HandlePickupResourceCommand(Command);
+        break;
+            
+    case EUnitCommandType::DropResource:
+        HandleDropResourceCommand(Command);
+        break;
+            
+    default:
+        // Pass other commands to your existing ExecuteCommand method
+            ExecuteCommand(Command);
+        break;
+    }
+}
+void AUnitController::HandlePickupResourceCommand(const FUnitCommand& Command)
+{
+    AUnitBase* Unit = Cast<AUnitBase>(GetPawn());
+    if (!Unit || !Command.TargetResource.IsValid())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Invalid unit or target resource for pickup command"));
+        return;
+    }
+    
+    APhysicalResourceActor* ResourceActor = Command.TargetResource.Get();
+    if (!ResourceActor)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Target resource actor is null"));
+        return;
+    }
+    
+    // Check if unit can pick up this resource
+    FName ResourceName;
+    int32 ResourceAmount;
+    float ResourceWeight;
+    TMap<FName, float> ResourceProperties;
+    ResourceActor->GetResourceData(ResourceName, ResourceAmount, ResourceWeight, ResourceProperties);
+    
+    FResource TempResource(ResourceName, ResourceAmount, ResourceWeight);
+    TempResource.ResourceProperties = ResourceProperties;
+    
+    if (!Unit->CanPickupResource(TempResource))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Unit cannot pickup resource: %s (capacity/weight limit)"), 
+               *ResourceName.ToString());
+        return;
+    }
+    
+    // Check if we're close enough to pick up immediately
+    float DistanceToResource = FVector::Dist(Unit->GetActorLocation(), ResourceActor->GetActorLocation());
+    
+    if (DistanceToResource <= ResourceInteractionDistance)
+    {
+        // Close enough - pick up immediately
+        Unit->ServerPickupResource(ResourceActor);
+        UE_LOG(LogTemp, Log, TEXT("Unit %s picked up resource %s immediately"), 
+               *Unit->GetName(), *ResourceName.ToString());
+    }
+    else
+    {
+        // Too far - move to resource first
+        TargetResourceActor = ResourceActor;
+        PendingResourceCommand = Command;
+        bHasPendingResourceAction = true;
+        
+        // Move to the resource location
+        FVector TargetLocation = ResourceActor->GetActorLocation();
+        UE_LOG(LogTemp, Log, TEXT("Unit %s moving to pickup resource %s at distance %.1f"), 
+               *Unit->GetName(), *ResourceName.ToString(), DistanceToResource);
+        
+        // Use your existing movement system
+        FUnitCommand MoveCommand(EUnitCommandType::Move, TargetLocation);
+        ExecuteCommand(MoveCommand);
+    }
+}
 
+void AUnitController::HandleDropResourceCommand(const FUnitCommand& Command)
+{
+    AUnitBase* Unit = Cast<AUnitBase>(GetPawn());
+    if (!Unit)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Invalid unit for drop command"));
+        return;
+    }
+    
+    if (Command.ResourceSlotIndex >= 0)
+    {
+        // Drop specific slot
+        Unit->ServerDropResource(Command.ResourceSlotIndex);
+        UE_LOG(LogTemp, Log, TEXT("Unit %s dropped resource from slot %d"), 
+               *Unit->GetName(), Command.ResourceSlotIndex);
+    }
+    else
+    {
+        // Drop all resources
+        Unit->ServerDropAllResources();
+        UE_LOG(LogTemp, Log, TEXT("Unit %s dropped all resources"), *Unit->GetName());
+    }
+}
+void AUnitController::CheckResourcePickupCompletion()
+{
+    AUnitBase* Unit = Cast<AUnitBase>(GetPawn());
+    if (!Unit || !TargetResourceActor.IsValid())
+    {
+        bHasPendingResourceAction = false;
+        return;
+    }
+    
+    APhysicalResourceActor* ResourceActor = TargetResourceActor.Get();
+    float DistanceToResource = FVector::Dist(Unit->GetActorLocation(), ResourceActor->GetActorLocation());
+    
+    if (DistanceToResource <= ResourceInteractionDistance)
+    {
+        // Close enough - execute the pickup
+        Unit->ServerPickupResource(ResourceActor);
+        
+        FName ResourceName;
+        int32 ResourceAmount;
+        float ResourceWeight;
+        TMap<FName, float> ResourceProperties;
+        ResourceActor->GetResourceData(ResourceName, ResourceAmount, ResourceWeight, ResourceProperties);
+        
+        UE_LOG(LogTemp, Log, TEXT("Unit %s completed movement and picked up resource %s"), 
+               *Unit->GetName(), *ResourceName.ToString());
+        
+        // Clear pending action
+        bHasPendingResourceAction = false;
+        TargetResourceActor = nullptr;
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Unit %s reached destination but still too far from resource (%.1f > %.1f)"), 
+               *Unit->GetName(), DistanceToResource, ResourceInteractionDistance);
+        
+        // Maybe try moving closer or give up
+        bHasPendingResourceAction = false;
+        TargetResourceActor = nullptr;
+    }
+}
+void AUnitController::CommandPickupNearestResource(FName ResourceName, float SearchRadius)
+{
+    AUnitBase* Unit = Cast<AUnitBase>(GetPawn());
+    if (!Unit)
+    {
+        return;
+    }
+    
+    APhysicalResourceActor* NearestResource = Unit->FindNearestResource(ResourceName, SearchRadius);
+    if (NearestResource)
+    {
+        FUnitCommand PickupCommand(EUnitCommandType::PickupResource, NearestResource);
+        ExecuteResourceCommand(PickupCommand);
+        
+        UE_LOG(LogTemp, Log, TEXT("Unit %s commanded to pickup nearest %s resource"), 
+               *Unit->GetName(), *ResourceName.ToString());
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Unit %s could not find any %s resources within %.1f units"), 
+               *Unit->GetName(), *ResourceName.ToString(), SearchRadius);
+    }
+}
+void AUnitController::CommandDropAllResources()
+{
+    FUnitCommand DropCommand(EUnitCommandType::DropResource, -1); // -1 means drop all
+    ExecuteResourceCommand(DropCommand);
+}
+
+void AUnitController::CommandDropResourceSlot(int32 SlotIndex)
+{
+    FUnitCommand DropCommand(EUnitCommandType::DropResource, SlotIndex);
+    ExecuteResourceCommand(DropCommand);
+}

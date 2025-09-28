@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
-
 #include "resource.h"
 #include "Resourcenames.h"
 #include "buildings/BuildingBase.h"
@@ -22,6 +21,7 @@ struct FPropertyMapWrap // wraper
 	UPROPERTY()
 	TMap<FName, float> Properties; //property name -> prop value
 };
+
 USTRUCT(BlueprintType)
 struct GAME_V0_API FBuildingCostEntry
 {

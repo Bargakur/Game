@@ -7,6 +7,16 @@
  *
  *
  */
+class APhysicalResourceActor;
+
+UENUM(BlueprintType)
+enum class EResourceLocation : uint8
+{
+	InPlayerInventory, // Abstract/logical state (current default)
+	OnGround,         // Physical world location
+	CarriedByUnit,    // Carried by a unit
+	StoredInBuilding  // Stored in a building
+};
 
 USTRUCT(BlueprintType)
 struct GAME_V0_API FResource
@@ -115,4 +125,24 @@ struct GAME_V0_API FResource
 	}
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Resource")
 	bool bIsWeapon = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Physical")
+	EResourceLocation LocationType = EResourceLocation::InPlayerInventory;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Physical")
+	FVector WorldLocation = FVector::ZeroVector;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Physical")
+	TWeakObjectPtr<AActor> ContainerActor = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Physical")
+	TWeakObjectPtr<APhysicalResourceActor> PhysicalActor = nullptr;
+
+	// Physical state management
+	void SetOnGround(FVector Location);
+	void SetCarriedBy(AActor* CarryingActor);
+	void SetInPlayerInventory();
+    
+	bool IsPhysicallyPresent() const { return LocationType != EResourceLocation::InPlayerInventory; }
+	bool CanBePickedUp() const { return LocationType == EResourceLocation::OnGround; }
 };

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "resource.h"
 #include "GameFramework/Character.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StreamableManager.h"
@@ -23,6 +24,9 @@ class GAME_V0_API AUnitBase : public ACharacter
     GENERATED_BODY()
 
 public:
+
+    virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+    
     // Sets default values for this character's properties
     AUnitBase();
 
@@ -59,6 +63,42 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
     EUnitSex UnitSex = EUnitSex::Male;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Resources")
+    int32 MaxCarrySlots = 2;
+    
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Resources")
+    float MaxCarryWeight = 20.0f;
+    
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Resources", ReplicatedUsing = OnRep_CarriedResources)
+    TArray<FResource> CarriedResources;
+
+    UFUNCTION(BlueprintCallable)
+    bool CanPickupResource(const FResource& Resource) const;
+    
+    UFUNCTION(BlueprintCallable, Server, Reliable)
+    void ServerPickupResource(class APhysicalResourceActor* ResourceActor);
+    
+    UFUNCTION(BlueprintCallable, Server, Reliable)
+    void ServerDropResource(int32 ResourceIndex);
+    
+    UFUNCTION(BlueprintCallable, Server, Reliable)
+    void ServerDropAllResources();
+    
+    UFUNCTION(BlueprintCallable)
+    class APhysicalResourceActor* FindNearestResource(FName ResourceName, float SearchRadius = 1000.0f);
+    
+    UFUNCTION(BlueprintCallable)
+    int32 GetCarriedAmount(FName ResourceName) const;
+    
+    UFUNCTION(BlueprintCallable)
+    bool HasResourceType(FName ResourceName) const;
+    
+    UFUNCTION(BlueprintCallable)
+    float GetCurrentCarryWeight() const;
+    
+    UFUNCTION()
+    void OnRep_CarriedResources();
+
 protected:
     virtual void BeginPlay() override;
     virtual void OnConstruction(const FTransform& Transform) override;
@@ -74,6 +114,8 @@ protected:
     // Selection manager reference
     UPROPERTY()
     AUnitSelectionManager* SelectionManager;
+
+    void UpdateCarriedResourceVisuals();
 
 public:
     virtual void Tick(float DeltaTime) override;

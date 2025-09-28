@@ -7,6 +7,7 @@
 
 class AUnitBase;
 class AUnitController;
+class APhysicalResourceActor;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSelectionChanged, const TArray<AUnitBase*>&, SelectedUnits);
 
@@ -73,6 +74,26 @@ public:
 
     // Initialization
     void SetOwnerPlayerController(APlayerController* PC) { OwnerPC = PC; }
+
+
+    UFUNCTION(BlueprintCallable)
+    void IssuePickupCommand(APhysicalResourceActor* ResourceActor);
+    
+    UFUNCTION(BlueprintCallable)
+    void IssueDropAllCommand();
+    
+    UFUNCTION(BlueprintCallable)
+    void IssueDropSlotCommand(int32 SlotIndex);
+    
+    UFUNCTION(BlueprintCallable)
+    void IssueFindResourceCommand(FName ResourceName, float SearchRadius = 1000.0f);
+    
+    // Get resource interaction info for UI
+    UFUNCTION(BlueprintCallable)
+    TArray<FString> GetSelectedUnitsResourceInfo() const;
+    
+    UFUNCTION(BlueprintCallable)
+    int32 GetTotalCarriedResources() const;
 
 protected:
     void UpdateSelectionVisuals();

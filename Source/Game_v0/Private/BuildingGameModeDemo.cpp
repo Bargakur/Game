@@ -8,6 +8,7 @@
 #include "MyGameInstance.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
+#include "PhysicalResourceActor.h"
 #include "TimerManager.h"
 
 ABuildingGameModeDemo::ABuildingGameModeDemo()
@@ -271,6 +272,20 @@ void ABuildingGameModeDemo::InitializePlayerStateFromGameInstance()
     {
         UE_LOG(LogTemp, Error, TEXT("GameMode: SelectedRaceClass is null"));
     }
+    if (SelectedRaceClass)
+    {
+        PS->SetPlayerRace(SelectedRaceClass);
+        
+        UE_LOG(LogTemp, Warning, TEXT("GameMode: Successfully initialized PlayerState with race: %s"), 
+               *SelectedRaceClass->GetName());
+               
+        // NOW spawn resources since race is initialized
+        SpawnInitialResources();
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("GameMode: SelectedRaceClass is null"));
+    }
 }
 
 void ABuildingGameModeDemo::OnTeamDefeated(int32 DefeatedTeamID)
@@ -292,4 +307,165 @@ void ABuildingGameModeDemo::AddCoreSpawnPoint(FVector Location, FRotator Rotatio
 void ABuildingGameModeDemo::ClearCoreSpawnPoints()
 {
     CoreSpawnPoints.Empty();
+}
+
+FVector ABuildingGameModeDemo::GetRandomLocationNearCores(int32 TeamID, float Radius)
+{
+    // Find all core spawn points for this team
+    TArray<FVector> TeamCoreLocations;
+    for (const FCoreSpawnPoint& SpawnPoint : CoreSpawnPoints)
+    {
+        if (SpawnPoint.TeamID == TeamID)
+        {
+            TeamCoreLocations.Add(SpawnPoint.Location);
+        }
+    }
+
+    if (TeamCoreLocations.Num() == 0)
+    {
+        UE_LOG(LogTemp, Error, TEXT("No core locations found for Team %d"), TeamID);
+        return FVector::ZeroVector;
+    }
+
+    // Pick random core location
+    FVector BaseLocation = TeamCoreLocations[FMath::RandRange(0, TeamCoreLocations.Num() - 1)];
+    
+    // Generate random offset within radius
+    float RandomAngle = FMath::RandRange(0.0f, 2.0f * PI);
+    float RandomDistance = FMath::RandRange(100.0f, Radius);
+    
+    FVector Offset = FVector(
+        FMath::Cos(RandomAngle) * RandomDistance,
+        FMath::Sin(RandomAngle) * RandomDistance,
+        0.0f
+    );
+
+    return BaseLocation + Offset;
+}
+
+void ABuildingGameModeDemo::SpawnResourcesNearCores(int32 TeamID)
+{
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    // Get the player's race class from PlayerState
+    APlayerController* PC = GetWorld()->GetFirstPlayerController();
+    ACustomPlayerState* PlayerState = PC->GetPlayerState<ACustomPlayerState>();
+    TSubclassOf<URace_base> RaceClass = PlayerState->GetPlayerRace();
+    
+    URace_base* RaceInstance = RaceClass->GetDefaultObject<URace_base>();
+    if (!RaceInstance)
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to get race instance for team %d"), TeamID);
+        return;
+    }
+
+    // Get all initial resource types from the race
+    TArray<EResourceKind> ResourceTypes = RaceInstance->GetInitialResourceTypes();
+    
+    for (EResourceKind ResourceKind : ResourceTypes)
+    {
+        // Get resource data from race
+        FName ResourceName = UGameResources::ResourceKindToName(ResourceKind);
+        int32 BaseAmount = RaceInstance->GetInitialResourceAmount(ResourceKind);
+        float Weight = RaceInstance->GetInitialResourceWeight(ResourceKind);
+        TMap<FName, float> Properties = RaceInstance->GetInitialResourceProperties(ResourceKind);
+        
+        // Spawn multiple piles of this resource (split the amount)
+        int32 NumPiles = FMath::Max(1, BaseAmount / 5); // Create piles of ~5 resources each
+        int32 AmountPerPile = FMath::Max(1, BaseAmount / NumPiles);
+        int32 RemainingAmount = BaseAmount;
+        
+        for (int32 i = 0; i < NumPiles && RemainingAmount > 0; i++)
+        {
+            int32 ThisPileAmount = FMath::Min(AmountPerPile, RemainingAmount);
+            RemainingAmount -= ThisPileAmount;
+            
+            // Get random location near this team's cores
+            FVector SpawnLocation = GetRandomLocationNearCores(TeamID, ResourceSpawnRadius);
+            
+            // Adjust for ground level
+            FHitResult HitResult;
+            FVector TraceStart = SpawnLocation + FVector(0, 0, 500.f);
+            FVector TraceEnd = SpawnLocation - FVector(0, 0, 500.f);
+            
+            if (World->LineTraceSingleByChannel(HitResult, TraceStart, TraceEnd, ECC_WorldStatic))
+            {
+                SpawnLocation = HitResult.Location + FVector(0, 0, 50.f); // Slight offset above ground
+            }
+
+            // Create resource data
+            FResource NewResource(ResourceName, ThisPileAmount, Weight);
+            
+            // Add properties from race definition
+            for (const auto& PropertyPair : Properties)
+            {
+                NewResource.SetProperty(PropertyPair.Key, PropertyPair.Value);
+            }
+
+            // Spawn physical actor
+            APhysicalResourceActor* PhysicalResource = World->SpawnActor<APhysicalResourceActor>(
+                APhysicalResourceActor::StaticClass(),
+                SpawnLocation,
+                FRotator::ZeroRotator
+            );
+
+            if (PhysicalResource)
+            {
+                // Set up the bidirectional reference
+                NewResource.SetOnGround(SpawnLocation);
+                NewResource.PhysicalActor = PhysicalResource;
+                PhysicalResource->Initialize(NewResource);
+                
+                UE_LOG(LogTemp, Log, TEXT("Spawned resource %s (Amount: %d, Weight: %.1f) for Team %d at %s"), 
+                       *NewResource.ResourceName.ToString(), NewResource.ResourceAmount, 
+                       NewResource.Weight, TeamID, *SpawnLocation.ToString());
+                       
+                // Log properties if any
+                if (Properties.Num() > 0)
+                {
+                    for (const auto& PropertyPair : Properties)
+                    {
+                        UE_LOG(LogTemp, Log, TEXT("  Property: %s = %.2f"), 
+                               *PropertyPair.Key.ToString(), PropertyPair.Value);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void ABuildingGameModeDemo::SpawnInitialResources()
+{
+    // Check if PlayerState is initialized with a race
+    APlayerController* PC = GetWorld()->GetFirstPlayerController();
+    if (!PC)
+    {
+        UE_LOG(LogTemp, Error, TEXT("No PlayerController found for resource spawning"));
+        return;
+    }
+    
+    ACustomPlayerState* PlayerState = PC->GetPlayerState<ACustomPlayerState>();
+    if (!PlayerState || !PlayerState->GetPlayerRace())
+    {
+        UE_LOG(LogTemp, Error, TEXT("PlayerState or PlayerRace not initialized - cannot spawn resources"));
+        return;
+    }
+
+    // Get unique team IDs from core spawn points
+    TSet<int32> TeamIDs;
+    for (const FCoreSpawnPoint& SpawnPoint : CoreSpawnPoints)
+    {
+        TeamIDs.Add(SpawnPoint.TeamID);
+    }
+
+    // Spawn resources for each team using the player's race data
+    for (int32 TeamID : TeamIDs)
+    {
+        SpawnResourcesNearCores(TeamID);
+        UE_LOG(LogTemp, Log, TEXT("Spawned initial resources for Team %d"), TeamID);
+    }
 }

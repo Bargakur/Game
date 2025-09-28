@@ -2,13 +2,15 @@
 
 #include "CoreMinimal.h"
 #include "AIController.h"
+#include "PhysicalResourceActor.h"
 #include "Navigation/PathFollowingComponent.h"
+#include "UnitCommand.h"
 
 #include "UnitController.generated.h"
 
 
 class AUnitBase;
-struct FUnitCommand;
+
 
 
 UCLASS()
@@ -60,6 +62,21 @@ public:
 	UFUNCTION(BlueprintPure)
 	FVector GetCurrentDestination() const { return CurrentDestination; }
 
+	UFUNCTION(BlueprintCallable)
+	void ExecuteResourceCommand(const FUnitCommand& Command);
+    
+	// Current resource-related command state
+	UPROPERTY()
+	TWeakObjectPtr<APhysicalResourceActor> TargetResourceActor;
+    
+	UPROPERTY()
+	FUnitCommand PendingResourceCommand;
+    
+	UPROPERTY()
+	bool bHasPendingResourceAction = false;
+
+	void CommandPickupNearestResource(FName ResourceName, float SearchRadius);
+
 
 protected:
 	void UpdateMovement(float DeltaTime);
@@ -67,6 +84,21 @@ protected:
 
 
 	virtual void OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result) override;
+
+	void HandlePickupResourceCommand(const FUnitCommand& Command);
+	void HandleDropResourceCommand(const FUnitCommand& Command);
+    
+	// Check if we've reached the target for resource pickup
+	void CheckResourcePickupCompletion();
+	
+    
+	// Resource interaction distance
+	UPROPERTY(EditAnywhere, Category = "Resources")
+	float ResourceInteractionDistance = 150.0f;
+
+
+	void CommandDropAllResources();
+	void CommandDropResourceSlot(int32 SlotIndex);
 
 
 

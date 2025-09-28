@@ -7,6 +7,9 @@
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/Engine.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "Net/UnrealNetwork.h"
+
 
 // Sets default values
 AUnitBase::AUnitBase()
@@ -74,6 +77,12 @@ void AUnitBase::BeginPlay()
     LoadSelectionMesh();
 
     UpdateSelectionVisual();
+}
+
+void AUnitBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+    DOREPLIFETIME(AUnitBase, CarriedResources);
 }
 
 void AUnitBase::SetupCollision()
@@ -273,6 +282,216 @@ void AUnitBase::OnConstruction(const FTransform& Transform)
             SelectionIndicator->SetStaticMesh(LoadedMesh);
         }
     }
+}
+
+bool AUnitBase::CanPickupResource(const FResource& Resource) const
+{
+    // Check slot capacity
+    if (CarriedResources.Num() >= MaxCarrySlots)
+    {
+        return false;
+    }
+    
+    // Check weight capacity
+    float CurrentWeight = GetCurrentCarryWeight();
+    if (CurrentWeight + Resource.Weight > MaxCarryWeight)
+    {
+        return false;
+    }
+    
+    return true;
+}
+
+void AUnitBase::ServerPickupResource_Implementation(APhysicalResourceActor* ResourceActor)
+{
+    if (!ResourceActor || !HasAuthority())
+    {
+        return;
+    }
+    
+    // Get resource data from the physical actor
+    FName ResourceName;
+    int32 ResourceAmount;
+    float ResourceWeight;
+    TMap<FName, float> ResourceProperties;
+    ResourceActor->GetResourceData(ResourceName, ResourceAmount, ResourceWeight, ResourceProperties);
+    
+    // Create FResource object
+    FResource ResourceData(ResourceName, ResourceAmount, ResourceWeight);
+    ResourceData.ResourceProperties = ResourceProperties;
+    
+    // Validate pickup
+    if (!CanPickupResource(ResourceData) || !ResourceActor->CanBePickedUpBy(this))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Cannot pickup resource: capacity or state issue"));
+        return;
+    }
+    
+    // Add to carried resources
+    ResourceData.SetCarriedBy(this);
+    CarriedResources.Add(ResourceData);
+    
+    // Destroy the physical actor
+    ResourceActor->Destroy();
+    
+    UE_LOG(LogTemp, Log, TEXT("Unit %s picked up resource: %s"), 
+           *GetName(), *ResourceData.ResourceName.ToString());
+    
+    UpdateCarriedResourceVisuals();
+}
+
+void AUnitBase::ServerDropResource_Implementation(int32 ResourceIndex)
+{
+    if (!HasAuthority() || ResourceIndex < 0 || ResourceIndex >= CarriedResources.Num())
+    {
+        return;
+    }
+    
+    FResource ResourceToDrop = CarriedResources[ResourceIndex];
+    CarriedResources.RemoveAt(ResourceIndex);
+    
+    // Spawn physical resource in world
+    FVector DropLocation = GetActorLocation() + GetActorForwardVector() * 100.0f;
+    
+    if (UWorld* World = GetWorld())
+    {
+        APhysicalResourceActor* PhysicalResource = World->SpawnActor<APhysicalResourceActor>(
+            APhysicalResourceActor::StaticClass(),
+            DropLocation,
+            FRotator::ZeroRotator
+        );
+        
+        if (PhysicalResource)
+        {
+            ResourceToDrop.SetOnGround(DropLocation);
+            PhysicalResource->Initialize(ResourceToDrop);
+            
+            UE_LOG(LogTemp, Log, TEXT("Unit %s dropped resource: %s"), 
+                   *GetName(), *ResourceToDrop.ResourceName.ToString());
+        }
+    }
+    
+    UpdateCarriedResourceVisuals();
+}
+
+void AUnitBase::ServerDropAllResources_Implementation()
+{
+    if (!HasAuthority())
+    {
+        return;
+    }
+    
+    for (int32 i = CarriedResources.Num() - 1; i >= 0; i--)
+    {
+        ServerDropResource(i);
+    }
+}
+
+APhysicalResourceActor* AUnitBase::FindNearestResource(FName ResourceName, float SearchRadius)
+{
+    if (!GetWorld())
+    {
+        return nullptr;
+    }
+    
+    TArray<AActor*> FoundActors;
+    UKismetSystemLibrary::SphereOverlapActors(
+        GetWorld(),
+        GetActorLocation(),
+        SearchRadius,
+        TArray<TEnumAsByte<EObjectTypeQuery>>(),
+        APhysicalResourceActor::StaticClass(),
+        TArray<AActor*>(),
+        FoundActors
+    );
+    
+    APhysicalResourceActor* NearestResource = nullptr;
+    float NearestDistance = SearchRadius;
+    
+    for (AActor* Actor : FoundActors)
+    {
+        if (APhysicalResourceActor* ResourceActor = Cast<APhysicalResourceActor>(Actor))
+        {
+            // Get resource data to check the name
+            if (ResourceName != NAME_None)
+            {
+                FName ActorResourceName;
+                int32 ActorResourceAmount;
+                float ActorResourceWeight;
+                TMap<FName, float> ActorResourceProperties;
+                ResourceActor->GetResourceData(ActorResourceName, ActorResourceAmount, ActorResourceWeight, ActorResourceProperties);
+                
+                // Check if this is the resource we're looking for
+                if (ActorResourceName != ResourceName)
+                {
+                    continue;
+                }
+            }
+            
+            // Check if it can be picked up
+            if (!ResourceActor->CanBePickedUpBy(this))
+            {
+                continue;
+            }
+            
+            float Distance = FVector::Dist(GetActorLocation(), ResourceActor->GetActorLocation());
+            if (Distance < NearestDistance)
+            {
+                NearestDistance = Distance;
+                NearestResource = ResourceActor;
+            }
+        }
+    }
+    
+    return NearestResource;
+}
+
+int32 AUnitBase::GetCarriedAmount(FName ResourceName) const
+{
+    int32 TotalAmount = 0;
+    for (const FResource& Resource : CarriedResources)
+    {
+        if (Resource.ResourceName == ResourceName)
+        {
+            TotalAmount += Resource.ResourceAmount;
+        }
+    }
+    return TotalAmount;
+}
+
+bool AUnitBase::HasResourceType(FName ResourceName) const
+{
+    for (const FResource& Resource : CarriedResources)
+    {
+        if (Resource.ResourceName == ResourceName)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+float AUnitBase::GetCurrentCarryWeight() const
+{
+    float TotalWeight = 0.0f;
+    for (const FResource& Resource : CarriedResources)
+    {
+        TotalWeight += Resource.Weight * Resource.ResourceAmount;
+    }
+    return TotalWeight;
+}
+
+void AUnitBase::OnRep_CarriedResources()
+{
+    UpdateCarriedResourceVisuals();
+}
+
+void AUnitBase::UpdateCarriedResourceVisuals()
+{
+    // TODO: Update visual representation of carried resources
+    // Could attach small mesh components to the unit to show what they're carrying
+    UE_LOG(LogTemp, VeryVerbose, TEXT("Unit %s carrying %d resources (Weight: %.1f/%.1f)"), 
+           *GetName(), CarriedResources.Num(), GetCurrentCarryWeight(), MaxCarryWeight);
 }
 
 

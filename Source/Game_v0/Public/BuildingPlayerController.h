@@ -5,6 +5,7 @@
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
 #include "BuildingPlacementComponent.h"
+#include "PhysicalResourceActor.h"
 #include "buildings/BuildingBase.h"
 #include "resource.h"
 #include "BuildingPlayerController.generated.h"
@@ -60,6 +61,17 @@ protected:
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
     UInputAction* DisplayBuildingWidget;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+    UInputAction* ResourcePickup;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+    UInputAction* ResourceDropAll;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+    UInputAction* ResourceFind;
+
+
 
     // Building System
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Building")
@@ -118,6 +130,17 @@ public:
 
     UFUNCTION()
     void OnPlayerResourcesChanged(const TArray<FResource>& UpdatedResources);
+    
+protected:
+    void HandleResourcePickup();
+    void HandleResourceDropAll();
+    void HandleResourceFind();
+
+    APhysicalResourceActor* GetResourceUnderCursor();
+    
+    // Resource interaction range
+    UPROPERTY(EditAnywhere, Category = "Resources")
+    float ResourceSelectionRange = 20000.0f;
 
 private:
     // Camera dragging

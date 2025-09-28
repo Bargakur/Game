@@ -34,7 +34,7 @@ TSoftObjectPtr<UStaticMesh> UResourceMeshManager::GetResourceMesh(const FResourc
 {
     return GetMeshForResource(Resource.ResourceName, Resource.ResourceProperties);
 }
-
+/*
 TSoftObjectPtr<UStaticMesh> UResourceMeshManager::GetMeshForResource(FName ResourceName, const TMap<FName, float>& Properties) const
 {
     const FResourceMeshConfig* Config = MeshConfigs.Find(ResourceName);
@@ -71,7 +71,58 @@ TSoftObjectPtr<UStaticMesh> UResourceMeshManager::GetMeshForResource(FName Resou
     
     return Config->Meshes[Index];
 }
+*/
+TSoftObjectPtr<UStaticMesh> UResourceMeshManager::GetMeshForResource(FName ResourceName, const TMap<FName, float>& Properties) const
+{
+    UE_LOG(LogTemp, Warning, TEXT("=== GetMeshForResource: %s ==="), *ResourceName.ToString());
+    UE_LOG(LogTemp, Warning, TEXT("MeshConfigs count: %d"), MeshConfigs.Num());
+    
+    // Log all available configs
+    for (const auto& ConfigPair : MeshConfigs)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Available config: %s"), *ConfigPair.Key.ToString());
+    }
+    
+    const FResourceMeshConfig* Config = MeshConfigs.Find(ResourceName);
+    if (!Config)
+    {
+        UE_LOG(LogTemp, Error, TEXT("No mesh config found for resource: %s"), *ResourceName.ToString());
+        return nullptr;
+    }
 
+    UE_LOG(LogTemp, Warning, TEXT("Found config with %d meshes"), Config->Meshes.Num());
+    
+    if (Config->Meshes.Num() == 0)
+    {
+        UE_LOG(LogTemp, Error, TEXT("No meshes configured for resource: %s"), *ResourceName.ToString());
+        return nullptr;
+    }
+
+    // Get the calculator function for this resource
+    const FResourceCalculatorFunction* CalculatorFunc = CalculatorFunctions.Find(ResourceName);
+    
+    int32 Index = 0; // Default to first mesh
+    
+    if (CalculatorFunc && *CalculatorFunc)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Using calculator function for %s"), *ResourceName.ToString());
+        Index = (*CalculatorFunc)(Properties, Config->CalculatorConfig);
+        UE_LOG(LogTemp, Warning, TEXT("Calculator returned index %d"), Index);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("No calculator found for %s, using index 0"), *ResourceName.ToString());
+    }
+
+    // Clamp index to valid range
+    Index = FMath::Clamp(Index, 0, Config->Meshes.Num() - 1);
+    UE_LOG(LogTemp, Warning, TEXT("Final clamped index: %d"), Index);
+    
+    TSoftObjectPtr<UStaticMesh> ResultMesh = Config->Meshes[Index];
+    UE_LOG(LogTemp, Warning, TEXT("Returning mesh path: %s"), *ResultMesh.ToSoftObjectPath().ToString());
+    
+    return ResultMesh;
+}
 void UResourceMeshManager::SetResourceMeshConfig(const FResourceMeshConfig& Config)
 {
     MeshConfigs.Add(Config.ResourceName, Config);
@@ -254,7 +305,7 @@ void UResourceMeshManager::InitializeDefaultConfigs()
     
     // Add sword meshes in order: Basic(0), Quality(1), Masterwork(2), Elite(3)
     SwordConfig.Meshes.Add(TSoftObjectPtr<UStaticMesh>(
-        FSoftObjectPath(TEXT("/Game/Resources/Meshes/Sword_Basic.Sword_Basic"))
+        FSoftObjectPath(TEXT("/Game/Resources/WeaponMeshes/ElfSword_Mesh.ElfSword_Mesh"))
     ));
     SwordConfig.Meshes.Add(TSoftObjectPtr<UStaticMesh>(
         FSoftObjectPath(TEXT("/Game/Resources/Meshes/Sword_Quality.Sword_Quality"))
@@ -301,7 +352,7 @@ void UResourceMeshManager::InitializeDefaultConfigs()
     FResourceMeshConfig WoodConfig;
     WoodConfig.ResourceName = UGameResources::ResourceKindToName(EResourceKind::wood);
     WoodConfig.Meshes.Add(TSoftObjectPtr<UStaticMesh>(
-        FSoftObjectPath(TEXT("/Game/Resources/Meshes/Wood_Default.Wood_Default"))
+        FSoftObjectPath(TEXT("/Game/Resources/Wood_Mesh.Wood_Mesh"))
     ));
     MeshConfigs.Add(WoodConfig.ResourceName, WoodConfig);
 

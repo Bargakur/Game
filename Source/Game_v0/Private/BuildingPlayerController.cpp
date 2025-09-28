@@ -1,6 +1,7 @@
 #include "BuildingPlayerController.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "EngineUtils.h"
 #include "InputMappingContext.h"
 #include "InputAction.h"
 #include "BuildingSelectionWidget.h"
@@ -12,6 +13,8 @@
 #include "CustomPlayerState.h"
 #include "UnitCommand.h"
 #include "UnitController.h"
+#include "UnitSelectionManager.h"
+#include "Engine/OverlapResult.h"
 #include "Camera/CameraActor.h"
 
 ABuildingPlayerController::ABuildingPlayerController()
@@ -94,6 +97,23 @@ ABuildingPlayerController::ABuildingPlayerController()
     if (UnitCommandObj.Succeeded())
     {
         UnitCommand = UnitCommandObj.Object;
+    }
+    static ConstructorHelpers::FObjectFinder<UInputAction> ResourcePickupObj(TEXT("/Game/Input/actions/IA_ResourcePickup.IA_ResourcePickup"));
+    if (ResourcePickupObj.Succeeded())
+    {
+        ResourcePickup = ResourcePickupObj.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> ResourceDropAllObj(TEXT("/Game/Input/actions/IA_ResourceDropAll.IA_ResourceDropAll"));
+    if (ResourceDropAllObj.Succeeded())
+    {
+        ResourceDropAll = ResourceDropAllObj.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> ResourceFindObj(TEXT("/Game/Input/actions/IA_ResourceFind.IA_ResourceFind"));
+    if (ResourceFindObj.Succeeded())
+    {
+        ResourceFind = ResourceFindObj.Object;
     }
     
 }
@@ -352,7 +372,23 @@ void ABuildingPlayerController::SetupInputComponent()
         {
             EnhancedInput->BindAction(UnitCommand, ETriggerEvent::Triggered, this, &ABuildingPlayerController::HandleUnitCommand);
         }
+        if (ResourcePickup)
+        {
+            EnhancedInput->BindAction(ResourcePickup, ETriggerEvent::Triggered, this, &ABuildingPlayerController::HandleResourcePickup);
+        }
+        
+        if (ResourceDropAll)
+        {
+            EnhancedInput->BindAction(ResourceDropAll, ETriggerEvent::Triggered, this, &ABuildingPlayerController::HandleResourceDropAll);
+        }
+        
+        if (ResourceFind)
+        {
+            EnhancedInput->BindAction(ResourceFind, ETriggerEvent::Triggered, this, &ABuildingPlayerController::HandleResourceFind);
+        }
+        
     }
+    
 }
 
 void ABuildingPlayerController::Tick(float DeltaTime)
@@ -796,3 +832,294 @@ FVector ABuildingPlayerController::GetWorldLocationUnderCursor()
     
     return FVector::ZeroVector;
 }
+
+void ABuildingPlayerController::HandleResourcePickup()
+{
+    UE_LOG(LogTemp, Log, TEXT("HandleResourcePickup called"));
+    
+    // Check if we're in building mode - resources have lower priority
+    if (BuildingPlacementComponent && BuildingPlacementComponent->IsPlacingBuilding())
+    {
+        UE_LOG(LogTemp, Log, TEXT("In building mode, ignoring resource pickup"));
+        return;
+    }
+    
+    // Check if building selection widget is open
+    if (BuildingSelectionWidgetInstance && BuildingSelectionWidgetInstance->IsInViewport())
+    {
+        UE_LOG(LogTemp, Log, TEXT("Building selection widget is open, ignoring resource pickup"));
+        return;
+    }
+    
+    // Look for resource under cursor first
+    APhysicalResourceActor* ResourceUnderCursor = GetResourceUnderCursor();
+    if (ResourceUnderCursor && SelectedUnits.Num() > 0)
+    {
+        // Get the selection manager (you might need to modify this based on your architecture)
+        if (UWorld* World = GetWorld())
+        {
+            // Find or create selection manager
+            AUnitSelectionManager* SelectionManager = nullptr;
+            for (TActorIterator<AUnitSelectionManager> ActorItr(World); ActorItr; ++ActorItr)
+            {
+                SelectionManager = *ActorItr;
+                break;
+            }
+            
+            if (SelectionManager)
+            {
+                SelectionManager->IssuePickupCommand(ResourceUnderCursor);
+                
+                FName ResourceName;
+                int32 ResourceAmount;
+                float ResourceWeight;
+                TMap<FName, float> ResourceProperties;
+                ResourceUnderCursor->GetResourceData(ResourceName, ResourceAmount, ResourceWeight, ResourceProperties);
+                
+                UE_LOG(LogTemp, Log, TEXT("Commanded units to pickup resource: %s"), *ResourceName.ToString());
+            }
+        }
+    }
+    else if (SelectedUnits.Num() > 0)
+    {
+        UE_LOG(LogTemp, Log, TEXT("No resource under cursor but units selected"));
+        // Maybe show a message to click on a resource
+    }
+    else
+    {
+        UE_LOG(LogTemp, Log, TEXT("No units selected for resource pickup"));
+    }
+}
+void ABuildingPlayerController::HandleResourceDropAll()
+{
+    UE_LOG(LogTemp, Log, TEXT("HandleResourceDropAll called"));
+    
+    if (SelectedUnits.Num() == 0)
+    {
+        UE_LOG(LogTemp, Log, TEXT("No units selected for drop all"));
+        return;
+    }
+    
+    // Get the selection manager
+    if (UWorld* World = GetWorld())
+    {
+        AUnitSelectionManager* SelectionManager = nullptr;
+        for (TActorIterator<AUnitSelectionManager> ActorItr(World); ActorItr; ++ActorItr)
+        {
+            SelectionManager = *ActorItr;
+            break;
+        }
+        
+        if (SelectionManager)
+        {
+            SelectionManager->IssueDropAllCommand();
+            UE_LOG(LogTemp, Log, TEXT("Commanded selected units to drop all resources"));
+        }
+    }
+}
+
+void ABuildingPlayerController::HandleResourceFind()
+{
+    UE_LOG(LogTemp, Log, TEXT("HandleResourceFind called"));
+    
+    if (SelectedUnits.Num() == 0)
+    {
+        UE_LOG(LogTemp, Log, TEXT("No units selected for resource find"));
+        return;
+    }
+    
+    // For now, let's make units find wood as an example
+    // You could extend this to show a UI for resource type selection
+    FName ResourceToFind = FName("wood");
+    
+    if (UWorld* World = GetWorld())
+    {
+        AUnitSelectionManager* SelectionManager = nullptr;
+        for (TActorIterator<AUnitSelectionManager> ActorItr(World); ActorItr; ++ActorItr)
+        {
+            SelectionManager = *ActorItr;
+            break;
+        }
+        
+        if (SelectionManager)
+        {
+            SelectionManager->IssueFindResourceCommand(ResourceToFind, 1500.0f);
+            UE_LOG(LogTemp, Log, TEXT("Commanded selected units to find %s"), *ResourceToFind.ToString());
+        }
+    }
+}
+
+APhysicalResourceActor* ABuildingPlayerController::GetResourceUnderCursor()
+{
+    FVector2D MousePosition;
+    if (!GetMousePosition(MousePosition.X, MousePosition.Y))
+        return nullptr;
+    
+    FVector WorldLocation, WorldDirection;
+    if (!DeprojectScreenPositionToWorld(MousePosition.X, MousePosition.Y, WorldLocation, WorldDirection))
+        return nullptr;
+    
+    FVector TraceStart = WorldLocation;
+    FVector TraceEnd = WorldLocation + (WorldDirection * ResourceSelectionRange);
+    
+    FCollisionQueryParams QueryParams;
+    QueryParams.bTraceComplex = true; // Use the complex collision you set up
+    QueryParams.AddIgnoredActor(this->GetPawn());
+    
+    for (AUnitBase* Unit : SelectedUnits)
+    {
+        if (IsValid(Unit))
+            QueryParams.AddIgnoredActor(Unit);
+    }
+    
+    FHitResult HitResult;
+    if (GetWorld()->LineTraceSingleByChannel(HitResult, TraceStart, TraceEnd, ECC_WorldDynamic, QueryParams))
+    {
+        return Cast<APhysicalResourceActor>(HitResult.GetActor());
+    }
+    
+    return nullptr;
+}
+/*
+APhysicalResourceActor* ABuildingPlayerController::GetResourceUnderCursor()//DEBUG version
+{
+    UE_LOG(LogTemp, Warning, TEXT("=== DEBUG GetResourceUnderCursor ==="));
+    
+    FVector2D MousePosition;
+    if (!GetMousePosition(MousePosition.X, MousePosition.Y))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to get mouse position"));
+        return nullptr;
+    }
+    
+    FVector WorldLocation, WorldDirection;
+    if (!DeprojectScreenPositionToWorld(MousePosition.X, MousePosition.Y, WorldLocation, WorldDirection))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to deproject screen position"));
+        return nullptr;
+    }
+    
+    // Method 1: Line trace with multiple collision channels
+    FVector TraceStart = WorldLocation;
+    FVector TraceEnd = WorldLocation + (WorldDirection * ResourceSelectionRange);
+    
+    FCollisionQueryParams QueryParams;
+    QueryParams.bTraceComplex = false;
+    QueryParams.bReturnPhysicalMaterial = false;
+    QueryParams.AddIgnoredActor(this->GetPawn());
+    
+    // Add selected units to ignored actors
+    for (AUnitBase* Unit : SelectedUnits)
+    {
+        if (IsValid(Unit))
+        {
+            QueryParams.AddIgnoredActor(Unit);
+        }
+    }
+    
+    // Try multiple collision channels
+    TArray<ECollisionChannel> ChannelsToTry = {
+        ECC_WorldDynamic,
+        ECC_WorldStatic,
+        ECC_Pawn,
+        ECC_Visibility
+    };
+    
+    for (ECollisionChannel Channel : ChannelsToTry)
+    {
+        FHitResult HitResult;
+        bool bHit = GetWorld()->LineTraceSingleByChannel(
+            HitResult,
+            TraceStart,
+            TraceEnd,
+            Channel,
+            QueryParams
+        );
+        
+        if (bHit && HitResult.GetActor())
+        {
+            APhysicalResourceActor* ResourceActor = Cast<APhysicalResourceActor>(HitResult.GetActor());
+            if (ResourceActor)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("Found resource via %d channel: %s"), 
+                       (int32)Channel, *ResourceActor->GetName());
+                return ResourceActor;
+            }
+        }
+    }
+    
+    // Method 2: Sphere overlap as backup (in case line trace misses)
+    UE_LOG(LogTemp, Warning, TEXT("Line trace failed, trying sphere overlap"));
+    
+    // Calculate sphere center at a reasonable distance
+    FVector SphereCenter = WorldLocation + (WorldDirection * 1000.0f); // 1000 units ahead
+    float SphereRadius = 200.0f; // 2 meter radius
+    
+    TArray<FOverlapResult> OverlapResults;
+    FCollisionShape Sphere = FCollisionShape::MakeSphere(SphereRadius);
+    
+    bool bOverlapHit = GetWorld()->OverlapMultiByChannel(
+        OverlapResults,
+        SphereCenter,
+        FQuat::Identity,
+        ECC_WorldDynamic,
+        Sphere,
+        QueryParams
+    );
+    
+    if (bOverlapHit)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Sphere overlap found %d actors"), OverlapResults.Num());
+        
+        for (const FOverlapResult& Result : OverlapResults)
+        {
+            if (APhysicalResourceActor* ResourceActor = Cast<APhysicalResourceActor>(Result.GetActor()))
+            {
+                UE_LOG(LogTemp, Warning, TEXT("Found resource via sphere overlap: %s"), 
+                       *ResourceActor->GetName());
+                return ResourceActor;
+            }
+        }
+    }
+    
+    // Method 3: Find all resources in world and check distance to cursor ray
+    UE_LOG(LogTemp, Warning, TEXT("Overlap failed, checking all resources in world"));
+    
+    float MinDistance = FLT_MAX;
+    APhysicalResourceActor* ClosestResource = nullptr;
+    
+    for (TActorIterator<APhysicalResourceActor> ActorItr(GetWorld()); ActorItr; ++ActorItr)
+    {
+        APhysicalResourceActor* ResourceActor = *ActorItr;
+        if (!ResourceActor || !IsValid(ResourceActor))
+            continue;
+            
+        FVector ResourceLocation = ResourceActor->GetActorLocation();
+        
+        // Calculate distance from resource to cursor ray
+        FVector PointOnLine = FMath::ClosestPointOnLine(TraceStart, TraceEnd, ResourceLocation);
+        float DistanceToRay = FVector::Dist(ResourceLocation, PointOnLine);
+        
+        // Check if resource is close enough to the cursor ray
+        if (DistanceToRay < 100.0f) // Within 1 meter of cursor ray
+        {
+            float DistanceAlongRay = FVector::Dist(TraceStart, PointOnLine);
+            if (DistanceAlongRay < MinDistance)
+            {
+                MinDistance = DistanceAlongRay;
+                ClosestResource = ResourceActor;
+            }
+        }
+    }
+    
+    if (ClosestResource)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Found resource via world iteration: %s (Distance: %.2f)"), 
+               *ClosestResource->GetName(), MinDistance);
+        return ClosestResource;
+    }
+    
+    UE_LOG(LogTemp, Warning, TEXT("No resource found with any method"));
+    return nullptr;
+}
+*/

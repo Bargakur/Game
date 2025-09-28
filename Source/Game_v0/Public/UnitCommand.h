@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PhysicalResourceActor.h"
 #include "UnitCommand.generated.h"
 
 UENUM(BlueprintType)
@@ -10,7 +11,9 @@ enum class EUnitCommandType : uint8
     Move        UMETA(DisplayName = "Move"),
     Stop        UMETA(DisplayName = "Stop"),
     Attack      UMETA(DisplayName = "Attack"),
-    Patrol      UMETA(DisplayName = "Patrol")
+    Patrol      UMETA(DisplayName = "Patrol"),
+    PickupResource    UMETA(DisplayName = "Pickup Resource"),
+    DropResource      UMETA(DisplayName = "Drop Resource")
 };
 
 USTRUCT(BlueprintType)
@@ -79,5 +82,27 @@ struct GAME_V0_API FUnitCommand
         
         return FString::Printf(TEXT("Command: %s, Location: %s, Priority: %d"), 
             *TypeString, *TargetLocation.ToString(), Priority);
+    }
+    
+    // NEW: Resource-specific data
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Resource Command")
+    TWeakObjectPtr<class APhysicalResourceActor> TargetResource = nullptr;
+    
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Resource Command")
+    int32 ResourceSlotIndex = -1; // For drop commands
+
+    // Constructor for resource pickup
+    FUnitCommand(EUnitCommandType InCommandType, APhysicalResourceActor* InTargetResource)
+    {
+        CommandType = InCommandType;
+        TargetResource = InTargetResource;
+        TargetLocation = InTargetResource ? InTargetResource->GetActorLocation() : FVector::ZeroVector;
+    }
+    
+    // Constructor for resource drop
+    FUnitCommand(EUnitCommandType InCommandType, int32 InSlotIndex)
+    {
+        CommandType = InCommandType;
+        ResourceSlotIndex = InSlotIndex;
     }
 };
