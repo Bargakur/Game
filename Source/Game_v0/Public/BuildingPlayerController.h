@@ -87,6 +87,10 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "UI") 
     TSoftClassPtr<UResourceDisplayWidget> ResourceHUDClass;
+
+    UPROPERTY()
+    class AUnitSelectionManager* SelectionManager;
+
 protected:
 
     // Widget Instances
