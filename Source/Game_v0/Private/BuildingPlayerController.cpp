@@ -529,7 +529,7 @@ void ABuildingPlayerController::CancelBuilding()
     // First check if the building selection widget is open and close it
     if (BuildingSelectionWidgetInstance && BuildingSelectionWidgetInstance->IsInViewport())
     {
-        BuildingSelectionWidgetInstance->RemoveFromViewport();
+        BuildingSelectionWidgetInstance->RemoveFromParent();
         BuildingSelectionWidgetInstance = nullptr;
         SetInputMode(FInputModeGameOnly());
         bShowMouseCursor = true;
@@ -554,7 +554,7 @@ void ABuildingPlayerController::DisplayBuilding()
     // Check if widget is already displayed
     if (BuildingSelectionWidgetInstance && BuildingSelectionWidgetInstance->IsInViewport())
     {
-        BuildingSelectionWidgetInstance->RemoveFromViewport();
+        BuildingSelectionWidgetInstance->RemoveFromParent();
         BuildingSelectionWidgetInstance = nullptr;
         return;
     }
@@ -602,7 +602,7 @@ void ABuildingPlayerController::OnBuildingClassSelected(TSubclassOf<ABuildingBas
             // Hide the widget
             if (BuildingSelectionWidgetInstance)
             {
-                BuildingSelectionWidgetInstance->RemoveFromViewport();
+                BuildingSelectionWidgetInstance->RemoveFromParent();
                 BuildingSelectionWidgetInstance = nullptr;
             }
             return; // Don't start placement
@@ -614,7 +614,7 @@ void ABuildingPlayerController::OnBuildingClassSelected(TSubclassOf<ABuildingBas
         // Hide the widget after selection
         if (BuildingSelectionWidgetInstance)
         {
-            BuildingSelectionWidgetInstance->RemoveFromViewport();
+            BuildingSelectionWidgetInstance->RemoveFromParent();
             BuildingSelectionWidgetInstance = nullptr;
         }
     

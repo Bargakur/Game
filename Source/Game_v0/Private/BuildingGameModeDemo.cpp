@@ -394,7 +394,7 @@ void ABuildingGameModeDemo::SpawnResourcesNearCores(int32 TeamID)
             
             if (World->LineTraceSingleByChannel(HitResult, TraceStart, TraceEnd, ECC_WorldStatic))
             {
-                SpawnLocation = HitResult.Location + FVector(0, 0, 50.f); // Slight offset above ground
+                SpawnLocation = HitResult.Location + FVector(0, 0, 0); // Slight offset above ground
             }
 
             // Create resource data

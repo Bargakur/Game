@@ -351,7 +351,7 @@ void AUnitBase::ServerDropResource_Implementation(int32 ResourceIndex)
     CarriedResources.RemoveAt(ResourceIndex);
     
     // Spawn physical resource in world
-    FVector DropLocation = GetActorLocation() + GetActorForwardVector() * 100.0f;
+    FVector DropLocation = FVector(GetActorLocation().X + GetActorForwardVector().X * 50.0f, GetActorLocation().Y + GetActorForwardVector().Y * 50.0f, 0) ;
     
     if (UWorld* World = GetWorld())
     {

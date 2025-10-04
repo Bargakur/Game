@@ -125,84 +125,7 @@ void APhysicalResourceActor::GetResourceData(FName& OutName, int32& OutAmount, f
         OutProperties.Add(Property.PropertyName, Property.PropertyValue);
     }
 }
-/*
-void APhysicalResourceActor::UpdateMeshFromResource()
-{
-    if (!MeshComponent || !bIsInitialized)
-    {
-        return;
-    }
 
-    UStaticMesh* MeshToUse = nullptr;
-    
-    // Try to get mesh from ResourceMeshManager
-    if (UResourceMeshManager* MeshManager = GetMeshManager())
-    {
-        // Convert property array back to TMap for mesh manager
-        TMap<FName, float> PropertyMap;
-        for (const FResourceProperty& Property : ResourceProperties)
-        {
-            PropertyMap.Add(Property.PropertyName, Property.PropertyValue);
-        }
-        
-        TSoftObjectPtr<UStaticMesh> ResourceMesh = MeshManager->GetMeshForResource(
-            ResourceName, PropertyMap
-        );
-        
-        if (ResourceMesh.IsValid())
-        {
-            MeshToUse = ResourceMesh.LoadSynchronous();
-            if (MeshToUse)
-            {
-                UE_LOG(LogTemp, Log, TEXT("Using specific mesh for resource: %s"), 
-                       *ResourceName.ToString());
-            }
-        }
-    }
-    
-    // Fallback to default cube mesh
-    if (!MeshToUse && DefaultResourceMesh.IsValid())
-    {
-        MeshToUse = DefaultResourceMesh.LoadSynchronous();
-        UE_LOG(LogTemp, Log, TEXT("Using default cube mesh for resource: %s"), 
-               *ResourceName.ToString());
-    }
-    
-    // Apply the mesh
-    if (MeshToUse)
-    {
-        MeshComponent->SetStaticMesh(MeshToUse);
-        
-        // Create dynamic material instance to color-code resources
-        if (UMaterialInterface* DefaultMaterial = MeshComponent->GetMaterial(0))
-        {
-            UMaterialInstanceDynamic* DynMaterial = UMaterialInstanceDynamic::Create(DefaultMaterial, this);
-            if (DynMaterial)
-            {
-                // Simple color coding based on resource name hash
-                uint32 Hash = GetTypeHash(ResourceName);
-                FLinearColor ResourceColor = FLinearColor::MakeFromHSV8(
-                    (Hash % 360),  // Hue from hash
-                    200,           // Saturation
-                    255            // Value/Brightness
-                );
-                
-                // Try common material parameter names
-                DynMaterial->SetVectorParameterValue(TEXT("BaseColor"), ResourceColor);
-                DynMaterial->SetVectorParameterValue(TEXT("Color"), ResourceColor);
-                DynMaterial->SetVectorParameterValue(TEXT("Albedo"), ResourceColor);
-                
-                MeshComponent->SetMaterial(0, DynMaterial);
-            }
-        }
-    }
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to load mesh for resource: %s"), 
-               *ResourceName.ToString());
-    }
-}
-*/
 void APhysicalResourceActor::UpdateMeshFromResource()
 {
     UE_LOG(LogTemp, Warning, TEXT("=== UpdateMeshFromResource for %s ==="), *GetName());
@@ -293,13 +216,38 @@ void APhysicalResourceActor::UpdateMeshFromResource()
     {
         UE_LOG(LogTemp, Warning, TEXT("Setting mesh on component: %s"), *MeshToUse->GetName());
         MeshComponent->SetStaticMesh(MeshToUse);
-        
-        // Simple color coding (skip for now to focus on mesh loading)
+
         UE_LOG(LogTemp, Warning, TEXT("Mesh successfully applied to component"));
     }
     else
     {
         UE_LOG(LogTemp, Error, TEXT("CRITICAL: No mesh to apply - resource will be invisible!"));
+    }
+    MeshComponent->SetStaticMesh(MeshToUse);
+        
+    // AUTOMATIC OFFSET CALCULATION based on mesh bounds
+    FBox MeshBounds = MeshToUse->GetBoundingBox();
+    FVector BoundsCenter = MeshBounds.GetCenter();
+    FVector BoundsMin = MeshBounds.Min;
+        
+    // Calculate offset to place bottom of mesh at Z=0 (ground level)
+    // The mesh bounds are relative to the mesh's pivot point
+    float ZOffset = -BoundsMin.Z;
+        
+    UE_LOG(LogTemp, Log, TEXT("Mesh '%s' bounds: Min=(%s), Max=(%s), Center=(%s)"), 
+           *MeshToUse->GetName(),
+           *MeshBounds.Min.ToString(),
+           *MeshBounds.Max.ToString(),
+           *BoundsCenter.ToString());
+    UE_LOG(LogTemp, Log, TEXT("Calculated Z offset: %.2f to place on ground"), ZOffset);
+        
+    // Apply the offset
+    MeshComponent->SetRelativeLocation(FVector(0, 0, ZOffset));
+        
+    // Also adjust collision component to be at ground level
+    if (CollisionComponent)
+    {
+        CollisionComponent->SetRelativeLocation(FVector(0, 0, ZOffset));
     }
 }
 
